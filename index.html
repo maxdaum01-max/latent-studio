@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Latent Studio – eine benutzerorientierte Stable-Diffusion-1.5-Webanwendung mit eigenen LoRAs, Parameter-Atlas und Scribble-ControlNet.">
+  <meta property="og:title" content="Latent Studio – Projektdokumentation">
+  <meta property="og:description" content="Generator, Parameterstudien und technische Umsetzung eines user-facing Stable-Diffusion-Tools.">
+  <meta property="og:image" content="assets/images/thumb/dataset-rendering-03.webp">
+  <title>Latent Studio — Maximilian Daum</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <nav class="site-nav" aria-label="Seitennavigation">
+    <div class="wide nav-inner">
+      <a class="brand" href="#top">Latent Studio</a>
+      <div class="nav-links">
+        <a href="#konzept">Konzept</a>
+        <a href="#umsetzung">Umsetzung</a>
+        <a href="#daten">Datensätze</a>
+        <a href="#atlas">Parameterstudien</a>
+        <a href="#probleme">Probleme</a>
+        <a href="#credits">Credits</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero wide" id="top">
+    <p class="eyebrow">Creative Coding Advanced · Semesterprojekt</p>
+    <h1>Latent Studio</h1>
+    <p class="subtitle">Eine benutzerorientierte Webanwendung zum Generieren, Vergleichen und Verstehen von Bildern mit Stable Diffusion 1.5.</p>
+    <p class="meta">Maximilian Daum · Fakultät Design, TH Nürnberg · Sommersemester 2026</p>
+    <div class="hero-pair" aria-label="Beispiele aus den beiden Trainingsdatensätzen">
+      <img src="assets/images/thumb/dataset-illustration-03.webp" alt="Minimalistische grüne Landschaft aus dem Illustrationsdatensatz">
+      <img src="assets/images/thumb/dataset-rendering-03.webp" alt="Rendering eines violetten Rings aus dem Rendering-Datensatz">
+    </div>
+  </header>
+
+  <main>
+    <section id="konzept">
+      <div class="wrap">
+        <h2>Konzept</h2>
+        <p class="lead">Latent Studio verbindet einen praktischen Bildgenerator mit einem Lern- und Vergleichswerkzeug. Einsteiger:innen erhalten verständliche Defaults und Erklärungen; erfahrene Nutzer:innen können Parameterreihen und LoRA-Tests ohne Code erzeugen.</p>
+        <div class="feature-grid">
+          <article class="card"><h3>Generator</h3><p>Zwei SD-1.5-Checkpoints, zwei eigene LoRAs, reproduzierbare Seeds und vollständige Metadaten.</p></article>
+          <article class="card"><h3>Parameter-Atlas</h3><p>Automatische CFG-×-Steps-Grids, LoRA-Weight-Sweeps und kontrollierte Seed-Vergleiche.</p></article>
+          <article class="card"><h3>Scribble ControlNet</h3><p>Eine gezeichnete Linienstruktur steuert die Komposition; das vorverarbeitete Kontrollbild bleibt sichtbar.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="umsetzung">
+      <div class="wide">
+        <div class="tech-grid">
+          <div>
+            <h2>Umsetzung</h2>
+            <p>Die Anwendung läuft in Google Colab mit Gradio und Diffusers. Stable Diffusion 1.5 und Realistic Vision V5.1 werden in <code>float16</code> bei 512 × 512 px betrieben.</p>
+            <div class="pipeline" aria-label="Vereinfachter Pipeline-Ablauf">
+              <span>Auswahl prüfen</span><br>
+              Modell-/ControlNet-Key vergleichen<br>
+              ↓<br>
+              alte Pipeline freigeben<br>
+              <code>gc.collect()</code> + <code>torch.cuda.empty_cache()</code><br>
+              ↓<br>
+              Modell lazy laden<br>
+              ↓<br>
+              LoRA mit festem Adapter laden<br>
+              ↓<br>
+              Bild + verwendete Metadaten ausgeben
+            </div>
+          </div>
+          <div>
+            <ul class="facts">
+              <li><strong>Modelle</strong><span>SD 1.5 und Realistic Vision V5.1</span></li>
+              <li><strong>LoRA Default</strong><span>keine LoRA; Gewicht 0,8</span></li>
+              <li><strong>Generierung</strong><span>CFG 7 · 25 Steps · Seed zufällig</span></li>
+              <li><strong>ControlNet</strong><span>Scribble · Scale 1,0 · optional</span></li>
+              <li><strong>Laufzeit</strong><span>3–8 s pro Bild; 20–60 s Modellwechsel</span></li>
+              <li><strong>Atlas</strong><span>ca. 1–2 min für 4 × 4 Bilder</span></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="wrap" style="margin-top:44px">
+          <h3>Interaktionsdetails</h3>
+          <p><strong>LoRA-Wechsel:</strong> Die vorherige LoRA wird entladen, die neue mit dem festen Adapternamen <code>active</code> geladen und über <code>set_adapters()</code> gewichtet. Im Sweep wird die LoRA nur einmal geladen; innerhalb der Schleife ändert sich ausschließlich ihr Gewicht.</p>
+          <p><strong>Prompt-Synchronisierung:</strong> Generator und Atlas besitzen getrennte Textfelder, spiegeln Prompt und Negative Prompt aber über <code>.input</code>-Events. Anders als <code>.change</code> reagiert <code>.input</code> nur auf echte Nutzereingaben und verhindert dadurch eine Event-Endlosschleife.</p>
+          <p><strong>ControlNet:</strong> Die Scribble-Zeichnung wird in Graustufen umgewandelt, invertiert und binarisiert. Die Vorschau zeigt exakt das Bild, das an <code>control_v11p_sd15_scribble</code> übergeben wird.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="daten">
+      <div class="wide">
+        <div class="wrap">
+          <h2>Eigene LoRAs</h2>
+          <p>Beide Style-LoRAs wurden auf Stable Diffusion 1.5 mit jeweils 30 eigenen Bildern trainiert. Jedes Bild erhielt eine individuelle Caption als Textdatei.</p>
+        </div>
+
+        <div class="gallery-title"><div><h3>Illustration Style</h3><p class="small">Minimalistische Landschaften, reduzierte Formen, ruhige Farbflächen und körnige Oberflächen.</p></div><span class="small">5 von 30 Trainingsbildern</span></div>
+        <div class="gallery-five">
+          <a href="assets/images/full/dataset-illustration-01.png"><img loading="lazy" src="assets/images/thumb/dataset-illustration-01.webp" alt="Illustrationsdatensatz Beispiel 1"></a>
+          <a href="assets/images/full/dataset-illustration-02.png"><img loading="lazy" src="assets/images/thumb/dataset-illustration-02.webp" alt="Illustrationsdatensatz Beispiel 2"></a>
+          <a href="assets/images/full/dataset-illustration-03.png"><img loading="lazy" src="assets/images/thumb/dataset-illustration-03.webp" alt="Illustrationsdatensatz Beispiel 3"></a>
+          <a href="assets/images/full/dataset-illustration-04.png"><img loading="lazy" src="assets/images/thumb/dataset-illustration-04.webp" alt="Illustrationsdatensatz Beispiel 4"></a>
+          <a href="assets/images/full/dataset-illustration-05.png"><img loading="lazy" src="assets/images/thumb/dataset-illustration-05.webp" alt="Illustrationsdatensatz Beispiel 5"></a>
+        </div>
+
+        <div class="gallery-title"><div><h3>Rendering Style</h3><p class="small">Eigene Produkt- und CGI-Arbeiten mit kontrolliertem Licht, markanter Farbigkeit und reduzierten Bühnen.</p></div><span class="small">5 von 30 Trainingsbildern</span></div>
+        <div class="gallery-five">
+          <a href="assets/images/full/dataset-rendering-01.png"><img loading="lazy" src="assets/images/thumb/dataset-rendering-01.webp" alt="Rendering-Datensatz Beispiel 1"></a>
+          <a href="assets/images/full/dataset-rendering-02.png"><img loading="lazy" src="assets/images/thumb/dataset-rendering-02.webp" alt="Rendering-Datensatz Beispiel 2"></a>
+          <a href="assets/images/full/dataset-rendering-03.png"><img loading="lazy" src="assets/images/thumb/dataset-rendering-03.webp" alt="Rendering-Datensatz Beispiel 3"></a>
+          <a href="assets/images/full/dataset-rendering-04.png"><img loading="lazy" src="assets/images/thumb/dataset-rendering-04.webp" alt="Rendering-Datensatz Beispiel 4"></a>
+          <a href="assets/images/full/dataset-rendering-05.png"><img loading="lazy" src="assets/images/thumb/dataset-rendering-05.webp" alt="Rendering-Datensatz Beispiel 5"></a>
+        </div>
+      </div>
+    </section>
+
+    <section id="atlas">
+      <div class="study-intro">
+        <h2>Parameterstudien</h2>
+        <p>Alle Vergleiche halten Prompt, Seed und übrige Einstellungen konstant. So wird sichtbar, welche Veränderung tatsächlich durch den untersuchten Parameter entsteht.</p>
+      </div>
+
+      <figure class="figure wide">
+        <a href="assets/images/full/cfg-steps-grid.png"><img loading="lazy" src="assets/images/thumb/cfg-steps-grid.webp" alt="CFG mal Steps Parametergrid"></a>
+        <figcaption><strong>CFG × Steps.</strong> SD 1.5, keine LoRA, Seed 42. Der größte Qualitätsgewinn entsteht zwischen 10 und 20–30 Steps; 40 Steps verändern nur noch wenig. Höheres CFG verstärkt Promptbindung und Kontrast, kann bei CFG 15 jedoch sichtbar überzeichnen.</figcaption>
+      </figure>
+
+      <div class="wide sweep-stack">
+        <figure class="figure">
+          <a href="assets/images/full/lora-sweep-illustration.png"><img loading="lazy" src="assets/images/thumb/lora-sweep-illustration.webp" alt="LoRA Weight Sweep der Illustration Style LoRA"></a>
+          <figcaption><strong>Illustration Style Sweep.</strong> Weight 0,0–1,5; Seed 42, CFG 7, 25 Steps. Ab etwa 0,56 wird die Landschaft zunehmend reduziert und flächig. Zwischen 0,75 und 0,94 ist der Stil klar, ohne das Motiv vollständig zu verdrängen.</figcaption>
+        </figure>
+        <figure class="figure">
+          <a href="assets/images/full/lora-sweep-rendering.png"><img loading="lazy" src="assets/images/thumb/lora-sweep-rendering.webp" alt="LoRA Weight Sweep der Rendering Style LoRA"></a>
+          <figcaption><strong>Rendering Style Sweep.</strong> Mit steigendem Gewicht isoliert sich das Produkt stärker vom Raum und wird skulpturaler. Ab etwa 1,1 nimmt die Formübersteuerung zu; 0,5–0,9 bietet den ausgewogensten Bereich.</figcaption>
+        </figure>
+      </div>
+
+      <div class="wide" style="margin-top:76px">
+        <div class="wrap">
+          <h3>25 Seeds × 2 Modelle × 3 LoRA-Stärken</h3>
+          <p>Die Seed-Studie prüft, ob die Rendering Style LoRA nur einzelne Glückstreffer erzeugt oder über verschiedene Ausgangsrauschen stabil arbeitet. Konstant: CFG 7, 25 Steps und dieselbe Seed-Reihe 0–24.</p>
+        </div>
+        <div class="seed-grid">
+          <figure class="seed-card"><a href="assets/images/full/seed-sd15-baseline.png"><img loading="lazy" src="assets/images/thumb/seed-sd15-baseline.webp" alt="Stable Diffusion 1.5 ohne LoRA über 25 Seeds"></a><figcaption><strong>SD 1.5 · ohne LoRA</strong>Hohe Form- und Kompositionsvarianz, geringe Serienkonsistenz.</figcaption></figure>
+          <figure class="seed-card"><a href="assets/images/full/seed-sd15-lora-05.png"><img loading="lazy" src="assets/images/thumb/seed-sd15-lora-05.webp" alt="Stable Diffusion 1.5 mit Rendering LoRA 0,5"></a><figcaption><strong>SD 1.5 · LoRA 0,5</strong>Deutlich einheitlicheres Licht und skulpturale Formsprache.</figcaption></figure>
+          <figure class="seed-card"><a href="assets/images/full/seed-sd15-lora-10.png"><img loading="lazy" src="assets/images/thumb/seed-sd15-lora-10.webp" alt="Stable Diffusion 1.5 mit Rendering LoRA 1,0"></a><figcaption><strong>SD 1.5 · LoRA 1,0</strong>Stärkste Stilübertragung, aber häufiger konstruktive Verzerrung.</figcaption></figure>
+          <figure class="seed-card"><a href="assets/images/full/seed-rv-baseline.png"><img loading="lazy" src="assets/images/thumb/seed-rv-baseline.webp" alt="Realistic Vision V5.1 ohne LoRA über 25 Seeds"></a><figcaption><strong>Realistic Vision · ohne LoRA</strong>Fotografisch und räumlich stabiler als die SD-1.5-Baseline.</figcaption></figure>
+          <figure class="seed-card"><a href="assets/images/full/seed-rv-lora-05.png"><img loading="lazy" src="assets/images/thumb/seed-rv-lora-05.webp" alt="Realistic Vision V5.1 mit Rendering LoRA 0,5"></a><figcaption><strong>Realistic Vision · LoRA 0,5</strong>Bester Kompromiss aus Stil, Motivlesbarkeit und Variation.</figcaption></figure>
+          <figure class="seed-card"><a href="assets/images/full/seed-rv-lora-10.png"><img loading="lazy" src="assets/images/thumb/seed-rv-lora-10.webp" alt="Realistic Vision V5.1 mit Rendering LoRA 1,0"></a><figcaption><strong>Realistic Vision · LoRA 1,0</strong>Sehr geschlossen, zugleich abstrakter und stärker überformt.</figcaption></figure>
+        </div>
+        <div class="wrap" style="margin-top:28px"><p class="lead">Ergebnis: Die LoRA überträgt Licht, Hintergrund und skulpturale Formensprache zuverlässig. Realistic Vision mit Weight 0,5 liefert in dieser Studie die stabilste Verbindung aus persönlichem Stil und lesbarem Motiv.</p></div>
+      </div>
+    </section>
+
+    <section id="probleme">
+      <div class="wrap">
+        <h2>Probleme und Lösungen</h2>
+        <div class="issue-list">
+          <div class="issue"><strong>VRAM beim Modellwechsel</strong><p>Nur eine Pipeline bleibt aktiv. Referenz lösen, Garbage Collector starten und CUDA-Cache leeren, bevor das neue Modell lazy geladen wird.</p></div>
+          <div class="issue"><strong>Gradio startete nicht</strong><p>Ein Schema-Parser brach nach einem Versionswechsel ab. Fix: Gradio 5.9.1 pinnen, fehlerhafte Nicht-Dictionary-Schemas absichern und <code>show_api=False</code>.</p></div>
+          <div class="issue"><strong>LoRA Weight ohne Effekt</strong><p><code>cross_attention_kwargs</code> wurde still ignoriert. Das Gewicht wird deshalb explizit über <code>set_adapters()</code> gesetzt.</p></div>
+          <div class="issue"><strong>Adapter-Konflikt im Sweep</strong><p>Die LoRA wird vor der Schleife einmal als <code>sweep</code> geladen; pro Bild ändert sich nur das Adaptergewicht.</p></div>
+          <div class="issue"><strong>Instabile Colab-Umgebung</strong><p>Abhängigkeiten werden gepinnt, einschließlich <code>torchao&gt;=0.16.0</code>. Für die Entwicklung nutzt Hugging Face den lokalen Cache; Drive bleibt der persistente Demo-Cache.</p></div>
+        </div>
+
+        <div class="balance">
+          <div><h3>Funktionierte gut</h3><ul><li>stabiler Wechsel zwischen zwei Checkpoints</li><li>reproduzierbare Seeds und sichtbare Metadaten</li><li>Atlas als verständliches Lernwerkzeug</li><li>transparenter Scribble-ControlNet-Input</li></ul></div>
+          <div><h3>Grenzen</h3><ul><li>20–60 Sekunden beim Modellwechsel</li><li>1–2 Minuten für ein 4 × 4 Grid</li><li>temporäre Colab- und Gradio-Sitzung</li><li>SD-1.5-Auflösung von 512 × 512 px</li></ul></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Fazit</h2>
+        <p class="lead">Latent Studio macht nicht nur Bilder, sondern die Entscheidungen hinter den Bildern sichtbar. Die Studien zeigen zugleich, dass Parameter nicht isoliert wirken: LoRA Weight, Basismodell, Seed, CFG und Steps beeinflussen sich gegenseitig. Der sinnvollste Wert ist daher kein universeller Default, sondern ein kontrolliert getesteter Arbeitsbereich.</p>
+      </div>
+    </section>
+
+    <section id="credits">
+      <div class="wide">
+        <div class="wrap"><h2>Credits und Lizenzen</h2></div>
+        <div class="credits">
+          <div class="credit"><strong>Stable Diffusion v1.5</strong>Rombach et al. / Runway ML · <a href="https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5">Hugging Face</a> · CreativeML Open RAIL-M</div>
+          <div class="credit"><strong>Realistic Vision V5.1</strong>SG161222 · <a href="https://huggingface.co/SG161222/Realistic_Vision_V5.1_noVAE">Hugging Face</a> · CreativeML Open RAIL-M</div>
+          <div class="credit"><strong>ControlNet Scribble v1.1</strong>Lvmin Zhang / lllyasviel · <a href="https://huggingface.co/lllyasviel/control_v11p_sd15_scribble">Hugging Face</a> · OpenRAIL-M</div>
+          <div class="credit"><strong>Illustration & Rendering Style LoRAs</strong>Selbst trainiert von Maximilian Daum · jeweils 30 eigene Trainingsbilder · SD-1.5-Basis</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="wide">Latent Studio · Maximilian Daum · Creative Coding Advanced (BA) · TH Nürnberg</div></footer>
+</body>
+</html>
